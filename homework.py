@@ -1,13 +1,15 @@
+import json
 import logging
 import os
 import sys
 import time
 from http import HTTPStatus
+
 import requests
 import telegram
 from dotenv import load_dotenv
-from exceptions import (WrongResponseCode)
 
+from exceptions import RequestExceptionError, WrongResponseCode
 
 load_dotenv()
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
@@ -61,8 +63,14 @@ def get_api_answer(timestamp):
         if hw_status.status_code != HTTPStatus.OK:
             raise WrongResponseCode(f'Ошибка {hw_status.status_code}')
         return hw_status.json()
-    except Exception as error:
-        raise SystemError(f'Ошибка при запросе: {error}')
+    except requests.exceptions.RequestException as request_error:
+        message_error = f'Код ответа API (RequestException): {request_error}'
+        logger.error(message_error)
+        raise RequestExceptionError(message_error) from request_error
+    except json.JSONDecodeError as value_error:
+        message_error = f'Код ответа API (ValueError): {value_error}'
+        logger.error(message_error)
+        raise json.JSONDecodeError(message_error) from value_error
 
 
 def check_response(response):
@@ -96,7 +104,7 @@ def main():
     """Основная логика работы бота."""
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
-    ERROR_CACHE_MESSAGE = ''
+    error_cache_message = ''
     if not check_tokens():
         logger.critical('Ошибка переменных окружения')
         sys.exit('Ошибка переменных окружения')
@@ -112,9 +120,9 @@ def main():
         except Exception as error:
             logger.error(error)
             message_error = str(error)
-            if message_error != ERROR_CACHE_MESSAGE:
+            if message_error != error_cache_message:
                 send_message(bot, message_error)
-                ERROR_CACHE_MESSAGE = message_error
+                error_cache_message = message_error
         finally:
             timestamp = response.get('current_date')
             time.sleep(RETRY_PERIOD)
